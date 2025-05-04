@@ -94,13 +94,7 @@ async def predict_gesture_and_translate(req: SequenceRequest):
         gestures = [label for _, _, label in intervals] or ["none"]
         sentence = convert_gestures_to_sentence(gestures)
 
-        return {
-            "intervals": [
-                {"start": int(s), "end": int(e), "label": l}
-                for s, e, l in intervals
-            ],
-            "sentence": sentence
-        }
+        return {"sentence": sentence}
 
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
