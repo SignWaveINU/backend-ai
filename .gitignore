@@ -1,0 +1,29 @@
+# Python 관련
+__pycache__/
+*.py[cod]
+*.pkl
+*.h5
+*.keras
+
+# 가상 환경
+venv/
+.env
+
+# 모델 및 데이터
+*.csv
+*.mp4
+*.avi
+*.zip
+*.log
+*.npy
+
+# IDE 설정
+.idea/
+.vscode/
+.DS_Store
+
+# Jupyter 노트북 체크포인트
+.ipynb_checkpoints/
+
+# 기타
+test_main.http

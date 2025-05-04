@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+tensorflow
+numpy
+scikit-learn
+hmmlearn
+openai==0.28
+python-dotenv
+google-generativeai
