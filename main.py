@@ -8,7 +8,8 @@ from typing import List
 import uvicorn
 
 from app.utils import trim_zero_padding, sliding_window_gesture_detection
-
+from app.model_loader import load_models
+from app.gpt_router import router as gpt_router
 
 # 모델 로드 (최초 1회)
 encoder_model, gesture_hmms, ergodic_model = load_models()
@@ -25,6 +26,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ✅ GPT 변환 라우터 등록
+app.include_router(gpt_router)
 
 # 요청/응답 스키마
 class SequenceRequest(BaseModel):
