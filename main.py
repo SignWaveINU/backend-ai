@@ -8,7 +8,7 @@ from typing import List
 import uvicorn
 
 from app.utils import trim_zero_padding, sliding_window_gesture_detection
-from app.model_loader import load_models
+
 
 # 모델 로드 (최초 1회)
 encoder_model, gesture_hmms, ergodic_model = load_models()
