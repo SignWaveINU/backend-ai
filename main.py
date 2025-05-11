@@ -1,28 +1,35 @@
-#main.py
+# main.py
 import numpy as np
+import os
+import uvicorn
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
-from app.utils import clean_json_sequence
+from fastapi.staticfiles import StaticFiles
+
 from pydantic import BaseModel
 from typing import List
-from app.utils import trim_zero_padding, sliding_window_gesture_detection
+
+from app.utils import clean_json_sequence, trim_zero_padding, sliding_window_gesture_detection
 from app.model_loader import load_models
 from app.gpt_router import router as gpt_router
 from app.converter import convert_gestures_to_sentence
-import uvicorn
+from app.tts import generate_tts
 
 
-
-# 모델 로드 (최초 1회)
-encoder_model, gesture_hmms, ergodic_model = load_models()
-
+# FastAPI 애플리케이션 생성
 app = FastAPI()
 
+# 정적 파일 제공: "/tts_audios/파일명" 경로로 접근 가능하도록 설정
+app.mount("/tts_audios", StaticFiles(directory="tts_audios"), name="tts")
+
+# 루트 접근 시 Swagger로 리다이렉트
 @app.get("/", include_in_schema=False)
 async def root():
     return RedirectResponse(url="/docs")
 
+# CORS 설정
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -30,10 +37,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ✅ GPT 변환 라우터 등록
+# GPT 변환 라우터 등록
 app.include_router(gpt_router)
 
-# 요청/응답 스키마
+# 모델 로드 (최초 1회 실행)
+encoder_model, gesture_hmms, ergodic_model = load_models()
+
+# 요청/응답 스키마 정의
 class SequenceRequest(BaseModel):
     sequence: List[List[float]]
 
@@ -45,6 +55,11 @@ class Interval(BaseModel):
 class GestureResponse(BaseModel):
     intervals: List[Interval]
 
+class TranslateResponse(BaseModel):
+    sentence: str
+    audio_url: str
+
+# 제스처 예측 API
 @app.post("/predict_gesture", response_model=GestureResponse)
 async def predict_gesture(req: SequenceRequest):
     try:
@@ -70,10 +85,13 @@ async def predict_gesture(req: SequenceRequest):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
-
-@app.post("/predict_gesture_and_translate", summary="제스처 시퀀스를 자연어 문장으로 변환", tags=["Gesture + GPT"])
+# 제스처 → 문장 + TTS 변환 API
+@app.post(
+    "/predict_gesture_and_translate",
+    response_model=TranslateResponse,
+    summary="제스처 시퀀스를 자연어 문장으로 변환",
+    tags=["Gesture + GPT"]
+)
 async def predict_gesture_and_translate(req: SequenceRequest):
     try:
         sequence = clean_json_sequence(req.sequence, expected_length=126)
@@ -94,7 +112,19 @@ async def predict_gesture_and_translate(req: SequenceRequest):
         gestures = [label for _, _, label in intervals] or ["none"]
         sentence = convert_gestures_to_sentence(gestures)
 
-        return {"sentence": sentence}
+        # TTS 음성 파일 생성
+        audio_path = generate_tts(sentence)
+        audio_url = f"/tts_audios/{os.path.basename(audio_path)}"
+
+        return {
+            "sentence": sentence,
+            "audio_url": audio_url
+        }
 
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+# 서버 실행
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)
