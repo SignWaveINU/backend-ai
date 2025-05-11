@@ -7,3 +7,4 @@ hmmlearn
 openai==0.28
 python-dotenv
 google-generativeai
+gTTS
