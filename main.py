@@ -57,7 +57,8 @@ class GestureResponse(BaseModel):
 
 class TranslateResponse(BaseModel):
     sentence: str
-    audio_url: str
+    audio_base64: str  # audio_url → audio_base64로 변경
+
 
 # 제스처 예측 API
 @app.post("/predict_gesture", response_model=GestureResponse)
@@ -89,8 +90,8 @@ async def predict_gesture(req: SequenceRequest):
 @app.post(
     "/predict_gesture_and_translate",
     response_model=TranslateResponse,
-    summary="제스처 시퀀스를 자연어 문장으로 변환",
-    tags=["Gesture + GPT"]
+    summary="제스처 시퀀스를 자연어 문장, TTS으로 변환",
+    tags=["Gesture + Gemini"]
 )
 async def predict_gesture_and_translate(req: SequenceRequest):
     try:
@@ -114,11 +115,14 @@ async def predict_gesture_and_translate(req: SequenceRequest):
 
         # TTS 음성 파일 생성
         audio_path = generate_tts(sentence)
-        audio_url = f"/tts_audios/{os.path.basename(audio_path)}"
+
+        # 🔽 mp3 파일을 base64로 인코딩
+        with open(audio_path, "rb") as f:
+            audio_base64 = base64.b64encode(f.read()).decode("utf-8")
 
         return {
             "sentence": sentence,
-            "audio_url": audio_url
+            "audio_base64": audio_base64
         }
 
     except Exception as e:
