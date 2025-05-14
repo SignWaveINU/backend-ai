@@ -70,25 +70,39 @@ def sliding_window_gesture_detection(
                 max_diff = diff
                 best_label = name
 
+        print(f"[DEBUG] w={w:03d} | f_ll={f_ll:.2f} | max_diff={max_diff:.2f} → {best_label}")
+        for name in gesture_names:
+            g_ll = gesture_hmms[name].score(latent_seq, lengths)
+            diff = g_ll - f_ll
+            print(f"    → {name:<10}: g_ll={g_ll:.2f}, diff={diff:.2f}")
+
         if max_diff >= threshold_diff:
             detected.append((start, end, best_label))
+
+        print(f"[DEBUG] w={w:03d}, max_diff={max_diff:.2f}, best_label={best_label}, f_ll={f_ll:.2f}")
 
     merged = merge_gesture_intervals(detected, min_merge_gap)
     final = filter_short_intervals(merged, min_interval_length)
     return final
 
-def clean_json_sequence(sequence: list[list[float]], expected_length: int = 126) -> np.ndarray:
+def clean_json_sequence(sequence: list[list[float]], expected_length: int = None) -> np.ndarray:
+    if expected_length is None and len(sequence) > 0:
+        expected_length = len(sequence[0])  # 첫 프레임의 길이를 기준으로 사용
+
     cleaned = []
 
     for i, row in enumerate(sequence):
         if not isinstance(row, list):
             raise ValueError(f"Row {i} is not a list.")
 
-        if len(row) < expected_length:
-            padded = row + [0.0] * (expected_length - len(row))
+        row_len = len(row)
+
+        if row_len < expected_length:
+            padded = row + [0.0] * (expected_length - row_len)
             cleaned.append(padded)
-        elif len(row) > expected_length:
-            cleaned.append(row[:expected_length])
+        elif row_len > expected_length:
+            trimmed = row[:expected_length]
+            cleaned.append(trimmed)
         else:
             cleaned.append(row)
 
