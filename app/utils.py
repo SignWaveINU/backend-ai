@@ -1,5 +1,8 @@
 #app/utils.py
 import numpy as np
+from tensorflow.keras.preprocessing.sequence import pad_sequences
+
+
 
 def trim_zero_padding(sequence: np.ndarray) -> np.ndarray:
     non_zero_mask = np.any(sequence != 0, axis=1)
@@ -85,25 +88,25 @@ def sliding_window_gesture_detection(
     final = filter_short_intervals(merged, min_interval_length)
     return final
 
-def clean_json_sequence(sequence: list[list[float]], expected_length: int = None) -> np.ndarray:
+def clean_json_sequence(
+        sequence: list[list[float]],
+        expected_length: int = None,
+        max_seq_len: int = None
+) -> np.ndarray:
     if expected_length is None and len(sequence) > 0:
-        expected_length = len(sequence[0])  # 첫 프레임의 길이를 기준으로 사용
+        expected_length = len(sequence[0])
 
     cleaned = []
-
     for i, row in enumerate(sequence):
         if not isinstance(row, list):
             raise ValueError(f"Row {i} is not a list.")
 
-        row_len = len(row)
+        row = row[:expected_length] + [0.0] * max(0, expected_length - len(row))
+        cleaned.append(row)
 
-        if row_len < expected_length:
-            padded = row + [0.0] * (expected_length - row_len)
-            cleaned.append(padded)
-        elif row_len > expected_length:
-            trimmed = row[:expected_length]
-            cleaned.append(trimmed)
-        else:
-            cleaned.append(row)
+    arr = np.array(cleaned, dtype=np.float32)
 
-    return np.array(cleaned, dtype=np.float32)
+    if max_seq_len is not None:
+        arr = pad_sequences([arr], maxlen=max_seq_len, dtype='float32', padding='post', truncating='post')[0]
+
+    return arr

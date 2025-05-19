@@ -1,30 +1,26 @@
-# main.py
-import numpy as np
-import os
-import uvicorn
-import base64
-
-from fastapi import FastAPI, HTTPException
+#main.py
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
-
 from pydantic import BaseModel
 from typing import List
+import numpy as np
+import pandas as pd
+import base64
+import io
 
-from app.utils import clean_json_sequence, trim_zero_padding, sliding_window_gesture_detection
+from app.utils import trim_zero_padding, sliding_window_gesture_detection
 from app.model_loader import load_models
 from app.gpt_router import router as gpt_router
 from app.converter import convert_gestures_to_sentence
 from app.tts import generate_tts
-
 
 app = FastAPI()
 
 # 정적 파일 제공
 app.mount("/tts_audios", StaticFiles(directory="tts_audios"), name="tts")
 
-# 루트 리다이렉션
 @app.get("/", include_in_schema=False)
 async def root():
     return RedirectResponse(url="/docs")
@@ -37,17 +33,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Gemini 변환 라우터 포함
 app.include_router(gpt_router)
 
-# 모델 초기 로딩
+# 모델 로딩
 encoder_model, gesture_hmms, ergodic_model = load_models()
 
-
-# 요청 및 응답 스키마
-class SequenceRequest(BaseModel):
-    sequence: List[List[float]]
-
+# 응답 스키마 정의
 class Interval(BaseModel):
     start: int
     end: int
@@ -63,15 +54,15 @@ class TranslateResponse(BaseModel):
 class TTSRequest(BaseModel):
     sentence: str
 
-
-# 제스처 시퀀스를 제스처 라벨로 변환
-@app.post("/predict_gesture", response_model=GestureResponse)
-async def predict_gesture(req: SequenceRequest):
+# CSV 파일로 제스처 인식
+@app.post("/predict_gesture_from_csv", response_model=GestureResponse)
+async def predict_gesture_from_csv(file: UploadFile = File(...)):
     try:
-        expected_length = encoder_model.input_shape[2]
-        sequence = clean_json_sequence(req.sequence, expected_length=expected_length)
-        trimmed = trim_zero_padding(sequence)
+        contents = await file.read()
+        df = pd.read_csv(io.BytesIO(contents))
+        data = df.values.astype(np.float32)
 
+        trimmed = trim_zero_padding(data)
         intervals = sliding_window_gesture_detection(
             continuous_sequence=trimmed,
             encoder_model=encoder_model,
@@ -79,7 +70,7 @@ async def predict_gesture(req: SequenceRequest):
             final_model=ergodic_model,
             window_size=20,
             step=2,
-            threshold_diff=-300.0,
+            threshold_diff=0.0,
             min_merge_gap=3,
             min_interval_length=3
         )
@@ -91,18 +82,15 @@ async def predict_gesture(req: SequenceRequest):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-
-# 제스처 → 문장 변환
-@app.post(
-    "/predict_gesture_and_sentence",
-    summary="제스처 시퀀스를 자연어 문장으로 변환",
-    tags=["Gesture → Sentence"]
-)
-async def predict_gesture_and_sentence(req: SequenceRequest):
+# CSV 파일로 제스처 → 문장
+@app.post("/predict_gesture_and_sentence_from_csv", summary="CSV 기반 제스처를 문장으로 변환", tags=["Gesture → Sentence"])
+async def predict_gesture_and_sentence_from_csv(file: UploadFile = File(...)):
     try:
-        sequence = clean_json_sequence(req.sequence, expected_length=126)
-        trimmed = trim_zero_padding(sequence)
+        contents = await file.read()
+        df = pd.read_csv(io.BytesIO(contents))
+        data = df.values.astype(np.float32)
 
+        trimmed = trim_zero_padding(data)
         intervals = sliding_window_gesture_detection(
             continuous_sequence=trimmed,
             encoder_model=encoder_model,
@@ -111,8 +99,8 @@ async def predict_gesture_and_sentence(req: SequenceRequest):
             window_size=20,
             step=2,
             threshold_diff=0.0,
-            min_merge_gap=5,
-            min_interval_length=5,
+            min_merge_gap=3,
+            min_interval_length=3
         )
 
         gestures = [label for _, _, label in intervals] or ["none"]
@@ -123,14 +111,8 @@ async def predict_gesture_and_sentence(req: SequenceRequest):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-
-# 문장 → TTS 변환
-@app.post(
-    "/generate_tts",
-    response_model=TranslateResponse,
-    summary="자연어 문장을 TTS 음성(base64)으로 변환",
-    tags=["TTS"]
-)
+# TTS
+@app.post("/generate_tts", response_model=TranslateResponse, summary="자연어 문장을 TTS 음성(base64)으로 변환", tags=["TTS"])
 async def generate_tts_audio(data: TTSRequest):
     try:
         sentence = data.sentence
@@ -147,7 +129,7 @@ async def generate_tts_audio(data: TTSRequest):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-
 # 실행
 if __name__ == "__main__":
+    import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

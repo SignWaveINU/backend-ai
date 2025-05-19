@@ -8,3 +8,7 @@ openai==0.28
 python-dotenv
 google-generativeai
 gTTS
+tensorflow>=2.11
+keras>=2.11
+pandas
+python-multipart
