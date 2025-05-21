@@ -1,7 +1,8 @@
 #app/utils.py
 import numpy as np
+import datetime
 from tensorflow.keras.preprocessing.sequence import pad_sequences
-
+from typing import List, Tuple
 
 
 def trim_zero_padding(sequence: np.ndarray) -> np.ndarray:
@@ -36,54 +37,66 @@ def sliding_window_gesture_detection(
         threshold_diff: float = 3.0,
         min_merge_gap: int = 5,
         min_interval_length: int = 5,
-) -> list[tuple[int, int, str]]:
+        debug: bool = False,
+) -> List[Tuple[int, int, str]]:
     T = continuous_sequence.shape[0]
     if T < window_size:
         return []
 
     MAX_SEQ_LEN = encoder_model.input_shape[1]
     NUM_FEATURES = encoder_model.input_shape[2]
-
     gesture_names = list(gesture_hmms.keys())
-    detected = []
-    n_windows = (T - window_size) // step + 1
 
+    # Step 1: Collect all windows and pad
+    n_windows = (T - window_size) // step + 1
+    all_padded = []
     for w in range(n_windows):
         start = w * step
         end = start + window_size
         window = continuous_sequence[start:end, :]
-
-        if window.shape[0] < MAX_SEQ_LEN:
-            pad_len = MAX_SEQ_LEN - window.shape[0]
+        pad_len = MAX_SEQ_LEN - window.shape[0]
+        if pad_len > 0:
             padded = np.vstack([window, np.zeros((pad_len, NUM_FEATURES), dtype=window.dtype)])
         else:
             padded = window[:MAX_SEQ_LEN, :]
+        all_padded.append(padded)
 
-        latent_seq = encoder_model.predict(padded[np.newaxis, ...])[0]
-        lengths = [MAX_SEQ_LEN]
+    batched = np.stack(all_padded)  # shape: (n_windows, MAX_SEQ_LEN, NUM_FEATURES)
 
-        f_ll = final_model.score(latent_seq, lengths)
+    # Step 2: Batch predict latent sequences
+    latent_seqs = encoder_model.predict(batched, verbose=0)  # shape: (n_windows, MAX_SEQ_LEN, latent_dim)
+    lengths = [MAX_SEQ_LEN] * n_windows
 
-        max_diff = -np.inf
+    # Step 3: Score using final model
+    final_scores = [final_model.score(seq, [MAX_SEQ_LEN]) for seq in latent_seqs]
+
+    # Step 4: Detect gestures
+    detected = []
+    for i, (latent_seq, f_ll) in enumerate(zip(latent_seqs, final_scores)):
         best_label = None
+        max_diff = -np.inf
+        scores = {}
+
         for name in gesture_names:
-            g_ll = gesture_hmms[name].score(latent_seq, lengths)
+            g_ll = gesture_hmms[name].score(latent_seq, [MAX_SEQ_LEN])
             diff = g_ll - f_ll
+            scores[name] = (g_ll, diff)
             if diff > max_diff:
                 max_diff = diff
                 best_label = name
 
-        print(f"[DEBUG] w={w:03d} | f_ll={f_ll:.2f} | max_diff={max_diff:.2f} → {best_label}")
-        for name in gesture_names:
-            g_ll = gesture_hmms[name].score(latent_seq, lengths)
-            diff = g_ll - f_ll
-            print(f"    → {name:<10}: g_ll={g_ll:.2f}, diff={diff:.2f}")
+        if debug:
+            print(f"[DEBUG] w={i:03d} | f_ll={f_ll:.2f} | max_diff={max_diff:.2f} → {best_label}")
+            for name in gesture_names:
+                g_ll, diff = scores[name]
+                print(f"    → {name:<10}: g_ll={g_ll:.2f}, diff={diff:.2f}")
 
         if max_diff >= threshold_diff:
+            start = i * step
+            end = start + window_size
             detected.append((start, end, best_label))
 
-        print(f"[DEBUG] w={w:03d}, max_diff={max_diff:.2f}, best_label={best_label}, f_ll={f_ll:.2f}")
-
+    # Step 5: Merge and filter results
     merged = merge_gesture_intervals(detected, min_merge_gap)
     final = filter_short_intervals(merged, min_interval_length)
     return final
