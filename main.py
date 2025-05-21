@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 import base64
 import io
+import datetime
 
 from app.utils import trim_zero_padding, sliding_window_gesture_detection
 from app.model_loader import load_models
@@ -63,17 +64,21 @@ async def predict_gesture_from_csv(file: UploadFile = File(...)):
         data = df.values.astype(np.float32)
 
         trimmed = trim_zero_padding(data)
+
+        t1 = datetime.datetime.now()
         intervals = sliding_window_gesture_detection(
             continuous_sequence=trimmed,
             encoder_model=encoder_model,
             gesture_hmms=gesture_hmms,
             final_model=ergodic_model,
-            window_size=20,
+            window_size=10,
             step=2,
             threshold_diff=0.0,
             min_merge_gap=3,
             min_interval_length=3
         )
+        t2 = datetime.datetime.now()
+        print("수화인식 결과 반환api",t2-t1)
 
         return GestureResponse(
             intervals=[Interval(start=int(s), end=int(e), label=l) for s, e, l in intervals]
@@ -91,17 +96,21 @@ async def predict_gesture_and_sentence_from_csv(file: UploadFile = File(...)):
         data = df.values.astype(np.float32)
 
         trimmed = trim_zero_padding(data)
+
+        t1 = datetime.datetime.now()
         intervals = sliding_window_gesture_detection(
             continuous_sequence=trimmed,
             encoder_model=encoder_model,
             gesture_hmms=gesture_hmms,
             final_model=ergodic_model,
-            window_size=20,
+            window_size=10,
             step=2,
             threshold_diff=0.0,
             min_merge_gap=3,
             min_interval_length=3
         )
+        t2 = datetime.datetime.now()
+        print("결과",t2-t1)
 
         gestures = [label for _, _, label in intervals] or ["none"]
         sentence = convert_gestures_to_sentence(gestures)
